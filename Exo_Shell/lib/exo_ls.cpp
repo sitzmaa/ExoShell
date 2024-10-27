@@ -7,6 +7,8 @@
 #include <vector>
 #include <algorithm>
 #include <sys/stat.h>
+#include <cstring>
+#include <cstdlib>
 
 // Define each flag as a unique bit position
 #define FLAG_L 0x01 // Detailed listing
@@ -20,11 +22,17 @@
 #define FLAG_M 0x100 // Separate entries with commas
 #define FLAG_I 0x200 // Ignore files matching a pattern
 #define FLAG_T 0x400 // Sort by modification time
+#define FLAG_S 0x800 // Sort by size
+#define FLAG_C 0x1000 // Display in columns
+#define FLAG_1 0x2000 // Force single-column output
 
 // Function prototypes
 uint32_t parseFlags(int argc, char* argv[], std::string& ignore_pattern);
 void listDirectory(const std::filesystem::path& path, uint32_t flags, const std::string& ignore_pattern);
-void handleFileEntry(const std::filesystem::directory_entry& entry, uint32_t flags,const std::string& ignore_pattern);
+void handleFileEntry(const std::filesystem::directory_entry& entry, uint32_t flags, const std::string& ignore_pattern);
+void printError(const std::string& message);
+void printEntriesInColumns(const std::vector<std::filesystem::directory_entry>& entries, uint32_t flags);
+void printEntriesSingleColumn(const std::vector<std::filesystem::directory_entry>& entries, uint32_t flags);
 
 int main(int argc, char* argv[]) {
     uint32_t flags = 0;
@@ -33,6 +41,13 @@ int main(int argc, char* argv[]) {
     // Parse command line arguments for flags
     flags = parseFlags(argc, argv, ignore_pattern);
 
+    // Default directory is the current path
+    std::filesystem::path currentPath = std::filesystem::current_path();
+    // Check if directory is accessible
+    if (!std::filesystem::exists(currentPath) || !std::filesystem::is_directory(currentPath)) {
+        printError("Invalid directory: " + currentPath.string());
+        return EXIT_FAILURE;
+    }
     // Start listing the current directory
     listDirectory(".", flags, ignore_pattern);
 
@@ -43,7 +58,8 @@ uint32_t parseFlags(int argc, char* argv[], std::string& ignore_pattern) {
     std::map<char, int> flag_map = {
         {'l', FLAG_L}, {'a', FLAG_A}, {'h', FLAG_H}, {'d', FLAG_D},
         {'R', FLAG_R}, {'r', FLAG_r}, {'p', FLAG_P}, {'n', FLAG_N},
-        {'m', FLAG_M}, {'I', FLAG_I}, {'t', FLAG_T}
+        {'m', FLAG_M}, {'I', FLAG_I}, {'t', FLAG_T}, {'S', FLAG_S},
+        {'C', FLAG_C}, {'1', FLAG_1}
     };
 
     uint32_t flags = 0;
@@ -71,50 +87,59 @@ uint32_t parseFlags(int argc, char* argv[], std::string& ignore_pattern) {
 void listDirectory(const std::filesystem::path& path, uint32_t flags, const std::string& ignore_pattern) {
     std::vector<std::filesystem::directory_entry> entries;
 
-    for (const auto& entry : std::filesystem::directory_iterator(path)) {
-        std::string filename = entry.path().filename().string();
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(path)) {
+            std::string filename = entry.path().filename().string();
 
-        if ((flags & FLAG_I) && filename.find(ignore_pattern) != std::string::npos) {
-            continue; // Skip ignored files
+            if ((flags & FLAG_I) && filename.find(ignore_pattern) != std::string::npos) {
+                continue; // Skip ignored files
+            }
+
+            if (!(flags & FLAG_A) && filename[0] == '.') {
+                continue; // Skip hidden files unless `-a` is set
+            }
+
+            entries.push_back(entry);
         }
 
-        if (!(flags & FLAG_A) && filename[0] == '.') {
-            continue; // Skip hidden files unless `-a` is set
+        // Sort entries based on the specified flags
+        if (flags & FLAG_T) {
+            std::sort(entries.begin(), entries.end(),
+                      [](const auto& a, const auto& b) {
+                          return std::filesystem::last_write_time(a) > std::filesystem::last_write_time(b);
+                      });
+        } else if (flags & FLAG_S) {
+            std::sort(entries.begin(), entries.end(),
+                      [](const auto& a, const auto& b) {
+                          return a.file_size() > b.file_size(); // Sort by size
+                      });
+        } else {
+            std::sort(entries.begin(), entries.end(),
+                      [](const auto& a, const auto& b) {
+                          return a.path().filename() < b.path().filename();
+                      });
         }
 
-        entries.push_back(entry);
-    }
+        if (flags & FLAG_r) {
+            std::reverse(entries.begin(), entries.end()); // Reverse order if `-r` is set
+        }
 
-    // Sort entries by time if `-t` flag is set, else by name
-    if (flags & FLAG_T) {
-        std::sort(entries.begin(), entries.end(),
-                  [](const auto& a, const auto& b) {
-                      return std::filesystem::last_write_time(a) > std::filesystem::last_write_time(b);
-                  });
-    } else {
-        std::sort(entries.begin(), entries.end(),
-                  [](const auto& a, const auto& b) {
-                      return a.path().filename() < b.path().filename();
-                  });
-    }
-
-    if (flags & FLAG_r) {
-        std::reverse(entries.begin(), entries.end()); // Reverse order if `-r` is set
-    }
-
-    // Display directory entries with applied flags
-    for (const auto& entry : entries) {
-        handleFileEntry(entry, flags, ignore_pattern);
-    }
-
-    // Recursive listing if `-R` is set
-    if (flags & FLAG_R) {
-        for (const auto& entry : entries) {
-            if (entry.is_directory()) {
-                std::cout << "\n" << entry.path().string() << ":\n";
-                listDirectory(entry.path(), flags, ignore_pattern); // Recursively call on subdirectory
+        // Display directory entries based on the flags
+        if (flags & FLAG_1) {
+            printEntriesSingleColumn(entries, flags);
+        } else if (flags & FLAG_C) {
+            printEntriesInColumns(entries, flags);
+        } else {
+            for (const auto& entry : entries) {
+                handleFileEntry(entry, flags, ignore_pattern);
             }
         }
+
+        if (flags & FLAG_M) {
+            std::cout << "\r\n";
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        printError("Error reading directory: " + std::string(e.what()));
     }
 }
 
@@ -129,7 +154,7 @@ void handleFileEntry(const std::filesystem::directory_entry& entry, uint32_t fla
     if (flags & FLAG_L) {
         struct stat file_stat;
         stat(entry.path().c_str(), &file_stat);
-        
+
         std::cout << ((S_ISDIR(file_stat.st_mode)) ? 'd' : '-') 
                   << ((file_stat.st_mode & S_IRUSR) ? 'r' : '-')
                   << ((file_stat.st_mode & S_IWUSR) ? 'w' : '-')
@@ -158,10 +183,53 @@ void handleFileEntry(const std::filesystem::directory_entry& entry, uint32_t fla
     }
 
     std::cout << ((flags & FLAG_M) ? ", " : "\r\n"); // Use carriage return or newline based on `-m` flag
+
     // Recursive listing if `-R` is set and the entry is a directory
     if (flags & FLAG_R && entry.is_directory()) {
-        std::cout << "\n" << entry.path().string() << ":\n";
+        std::cout << "\r\n" << entry.path().string() << ":\r\n";
         listDirectory(entry.path(), flags, ignore_pattern); // Recursively call on subdirectory
     }
+}
 
+// Function to print directory entries in columns
+void printEntriesInColumns(const std::vector<std::filesystem::directory_entry>& entries, uint32_t flags) {
+    const int terminal_width = 80; // Assuming a standard terminal width
+    int max_length = 0;
+
+    // Find the maximum filename length
+    for (const auto& entry : entries) {
+        int length = entry.path().filename().string().length();
+        if (length > max_length) {
+            max_length = length;
+        }
+    }
+
+    // Adding extra space for better readability
+    max_length += 2; // Add space for padding
+
+    int columns = terminal_width / max_length; // Calculate number of columns
+
+    // Print entries in columns
+    for (size_t i = 0; i < entries.size(); ++i) {
+        std::cout << std::left << std::setw(max_length) << entries[i].path().filename().string();
+        if ((i + 1) % columns == 0) {
+            std::cout << "\r\n"; // New line after reaching the column limit
+        }
+    }
+    if (entries.size() % columns != 0) {
+        std::cout << "\r\n"; // Final new line if last line is not full
+    }
+}
+
+
+// Function to print directory entries in a single column
+void printEntriesSingleColumn(const std::vector<std::filesystem::directory_entry>& entries, uint32_t flags) {
+    for (const auto& entry : entries) {
+        std::cout << entry.path().filename().string() << "\r\n"; // Output each entry on a new line
+    }
+}
+
+// Function to print error messages
+void printError(const std::string& message) {
+    std::cerr << message << std::endl;
 }
