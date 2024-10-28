@@ -73,7 +73,7 @@ uint32_t parseFlags(int argc, char* argv[], std::string& ignore_pattern) {
                 if (flag_map.find(flag_char) != flag_map.end()) {
                     flags |= flag_map[flag_char];
                 } else {
-                    std::cerr << "Unknown flag: -" << flag_char << std::endl;
+                    std::cerr << "Unknown flag: -" << flag_char << "\r\n";
                 }
             }
         } else if (flags & FLAG_I) {
@@ -231,5 +231,5 @@ void printEntriesSingleColumn(const std::vector<std::filesystem::directory_entry
 
 // Function to print error messages
 void printError(const std::string& message) {
-    std::cerr << message << std::endl;
+    std::cerr << message << "\r\n";
 }
