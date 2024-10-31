@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal Web Browser</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f2f2f2;
+        }
+        .container {
+            text-align: center;
+        }
+        h1 {
+            font-size: 3rem;
+            color: #4d90fe;
+            margin-bottom: 20px;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        input[type="text"] {
+            width: 400px;
+            padding: 12px;
+            font-size: 1.2rem;
+            border: 1px solid #dcdcdc;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        input[type="submit"] {
+            padding: 10px 20px;
+            font-size: 1rem;
+            color: white;
+            background-color: #4d90fe;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        input[type="submit"]:hover {
+            background-color: #357ae8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Terminal Browser</h1>
+        <form action="" method="get" onsubmit="submitForm(event)">
+            <input type="text" id="domainInput" placeholder="Enter a URL (e.g., example.com)">
+            <input type="submit" value="Go">
+        </form>
+    </div>
+
+    <script>
+        function submitForm(event) {
+            event.preventDefault();
+            const domain = document.getElementById('domainInput').value;
+            if (domain) {
+                window.location.href = 'http://' + domain;
+            } else {
+                alert('Please enter a valid URL.');
+            }
+        }
+    </script>
+</body>
+</html>
